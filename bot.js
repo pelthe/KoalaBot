@@ -1,14 +1,16 @@
+// Import required modules
 import { createTwitchClient } from './utils/twitchClient.js';
 import { handleVisit } from './commands/visit.js';
 import { handleVisitboard } from './commands/visitboard.js';
 import { loadData, saveData, canVisitToday, checkAndResetStats } from './services/dataService.js';
 import { Translate } from '@google-cloud/translate').v2;
 
-// 🔑 Initialize Google Translate
+// 🔑 Initialize Google Translate with your API key
 const translate = new Translate({
-  key: 'YOUR_GOOGLE_API_KEY' // Replace with your actual key
+  key: 'YOUR_GOOGLE_API_KEY' // Replace with your actual API key
 });
 
+// Create and connect the Twitch bot client
 const client = createTwitchClient();
 
 client.connect().catch(error => {
@@ -17,6 +19,7 @@ client.connect().catch(error => {
   }
 });
 
+// Bot connected log and command list
 client.on('connected', () => {
   console.log('✅ Bot connected to Twitch!');
   console.log(`📺 Channel: ${process.env.TWITCH_CHANNEL}`);
@@ -28,14 +31,15 @@ client.on('connected', () => {
   console.log('   !translate - Translate a message to English');
 });
 
+// Handle chat messages
 client.on('message', async (channel, tags, message, self) => {
-  if (self) return;
+  if (self) return; // Ignore messages from the bot itself
 
-  const command = message.toLowerCase();
+  const command = message.toLowerCase(); // Convert message to lowercase for easy matching
   const username = tags.username;
-  const data = loadData();
+  const data = loadData(); // Load visit data
 
-  // User data init
+  // Initialize user data if it doesn't exist
   if (!data.users[username]) {
     data.users[username] = {
       totalVisits: 0,
@@ -45,7 +49,7 @@ client.on('message', async (channel, tags, message, self) => {
     };
   }
 
-  // Handle visit tracking
+  // If the user hasn't visited today, update their visit stats
   if (canVisitToday(data.users[username].lastVisit)) {
     data.users[username].totalVisits++;
     data.users[username].monthlyVisits++;
@@ -54,7 +58,7 @@ client.on('message', async (channel, tags, message, self) => {
     saveData(data);
   }
 
-  // Command handling
+  // Visit and leaderboard commands
   if (command === '!visit') {
     handleVisit(client, channel, username);
   } else if (command === '!top10') {
@@ -63,22 +67,33 @@ client.on('message', async (channel, tags, message, self) => {
     handleVisitboard(client, channel, 'monthly');
   } else if (command === '!top10y') {
     handleVisitboard(client, channel, 'yearly');
-  } else if (command.startsWith('!translate')) {
-    let textToTranslate = message.replace(/^!translate\s*/i, '').trim();
-    const replyMsg = tags['reply-parent-msg-body'];
+  }
 
+  // 🈯 TRANSLATE COMMAND
+  else if (command.startsWith('!translate')) {
+    // Extract the message part after the command
+    let textToTranslate = message.replace(/^!translate\s*/i, '').trim();
+
+    // Check if this message is a reply to another one, and fallback to that
+    const replyMsg = tags['reply-parent-msg-body'];
     if (!textToTranslate && replyMsg) {
       textToTranslate = replyMsg;
     }
 
+    // If no text provided and not a reply, ask for input
     if (!textToTranslate) {
       client.say(channel, `@${username}, please provide a message to translate or reply to one.`);
       return;
     }
 
+    // Translate the message to English using Google Translate API
     try {
       const [translated] = await translate.translate(textToTranslate, 'en');
+
+      // Truncate if it's too long for Twitch chat
       const cleanTranslated = translated.length > 300 ? translated.substring(0, 297) + '...' : translated;
+
+      // Send translation back to chat
       client.say(channel, `🈯 @${username}, Translation: ${cleanTranslated}`);
     } catch (err) {
       console.error('Translation error:', err);
@@ -87,4 +102,5 @@ client.on('message', async (channel, tags, message, self) => {
   }
 });
 
-setInterval(checkAndResetStats, 3600000);
+// Periodic check for resetting monthly/yearly stats
+setInterval(checkAndResetStats, 3600000); // Every hour
